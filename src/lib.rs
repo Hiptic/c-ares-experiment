@@ -91,7 +91,7 @@ impl Dns {
                     a_query.join(aaaa_query)
                 })
                 // Limit how many futures execute in parallel
-                .buffer_unordered(1)
+                .buffer_unordered(25)
                 // Send each response on the result channel
                 .for_each(|res| {
                     callback(responses_into_iter(res));
@@ -102,29 +102,5 @@ impl Dns {
         });
 
         Dns { tx: tx }
-    }
-}
-
-
-const QUERIES: usize = 1000;
-
-fn main() {
-    // Channel for results
-    let (tx, rx) = std_mpsc::channel();
-
-    let dns = Dns::new(move |res| tx.send(res).unwrap());
-
-    // Request QUERIES lookups
-    for _ in 0..QUERIES {
-        let _ = dns.resolve("google.com");
-    }
-
-    // Wait for QUERIES responses
-    for _ in 0..QUERIES {
-        match rx.recv() {
-            Ok(Ok(addrs)) => println!("OK: {:?}", addrs),
-            Ok(Err(err)) => println!("DNS ERR: {}", err),
-            Err(err) => println!("CHANNEL ERR: {}", err)
-        };
     }
 }
