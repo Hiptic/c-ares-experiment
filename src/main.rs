@@ -13,7 +13,7 @@ static DOMAIN: &'static str = "google.com";
 fn main() {
     // Create the request channel. Lookup requests are sent on `tx`, and `rx`
     // provides a stream of those requests.
-    let (tx, rx) = mpsc::unbounded::<(usize, &'static str)>();
+    let (tx, rx) = mpsc::unbounded::<&'static str>();
 
     // Channel for results
     let (res_tx, res_rx) = std_mpsc::channel();
@@ -26,17 +26,19 @@ fn main() {
         let stream = rx
             // Map each request into a future that should return the lookup
             // result
-            .map(|(i, req)| {
-                println!("req: {}, {}", i, req);
-                resolver.query_a(&req[..])
-                    .join(Ok(i))
-                    .map_err(|_| ()) // errors are.. ignored :(
+            .map(|req| {
+                resolver
+                    // Creates the request
+                    .query_a(&req[..])
+                    // Transform into a future that is always successful with Item type of
+                    // Result<c_ares::AResults, c_ares::Error>
+                    .then(|res| Ok(res))
             })
             // Limit how many futures execute in parallel
-            .buffer_unordered(20)
+            .buffer_unordered(10)
             // Send each response on the result channel
-            .for_each(|(res, i)| {
-                let _ = res_tx.send((i, res));
+            .for_each(|res| {
+                let _ = res_tx.send(res);
                 Ok(())
             });
 
@@ -44,15 +46,16 @@ fn main() {
     });
 
     // Do QUERIES lookups of DOMAIN
-    for i in 0..QUERIES {
-        tx.send((i, DOMAIN)).unwrap();
+    for _ in 0..QUERIES {
+        tx.send(DOMAIN).unwrap();
     }
 
     // Wait for QUERIES responses
     for _ in 0..QUERIES {
         match res_rx.recv() {
-            Ok((i, res)) => println!("{}, {}", i, res),
-            Err(err) => println!("{}", err)
+            Ok(Ok(res)) => println!("OK: {}", res),
+            Ok(Err(err)) => println!("LOOKUP ERR: {}", err),
+            Err(err) => println!("CHANNEL ERR: {}", err)
         };
     }
 }
