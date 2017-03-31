@@ -65,40 +65,42 @@ impl Dns {
         let (tx, rx) = mpsc::unbounded::<Cow<'static, str>>();
 
         // Spawn a thread to run c-ares on. tokio-core is used as a driver.
-        thread::spawn(move || {
-            let mut event_loop = tokio_core::reactor::Core::new().unwrap();
-            let resolver = c_ares_resolver::FutureResolver::new().unwrap();
+        thread::Builder::new()
+            .name(String::from("c-ares-resolver"))
+            .spawn(move || {
+                let mut event_loop = tokio_core::reactor::Core::new().unwrap();
+                let resolver = c_ares_resolver::FutureResolver::new().unwrap();
 
-            let stream = rx
-                // Map each request into a future that should return the lookup
-                // result
-                .map(|req| {
-                    let a_query = resolver
-                        // Creates the A request
-                        .query_a(&req[..])
-                        // Transform into a future that is always successful with Item type of
-                        // Result<c_ares::AResults, c_ares::Error>
-                        .then(|res| Ok(res));
+                let stream = rx
+                    // Map each request into a future that should return the lookup
+                    // result
+                    .map(|req| {
+                        let a_query = resolver
+                            // Creates the A request
+                            .query_a(&req[..])
+                            // Transform into a future that is always successful with Item type of
+                            // Result<c_ares::AResults, c_ares::Error>
+                            .then(|res| Ok(res));
 
-                    let aaaa_query = resolver
-                        // Create the AAAA request
-                        .query_aaaa(&req[..])
-                        // Transform into a future that is always successful with Item type of
-                        // Result<c_ares::AAAAResults, c_ares::Error>
-                        .then(|res| Ok(res));
+                        let aaaa_query = resolver
+                            // Create the AAAA request
+                            .query_aaaa(&req[..])
+                            // Transform into a future that is always successful with Item type of
+                            // Result<c_ares::AAAAResults, c_ares::Error>
+                            .then(|res| Ok(res));
 
-                    a_query.join(aaaa_query)
-                })
-                // Limit how many futures execute in parallel
-                .buffer_unordered(1000)
-                // Send each response on the result channel
-                .for_each(|res| {
-                    callback(responses_into_iter(res));
-                    Ok(())
-                });
+                        a_query.join(aaaa_query)
+                    })
+                    // Limit how many futures execute in parallel
+                    .buffer_unordered(1000)
+                    // Send each response on the result channel
+                    .for_each(|res| {
+                        callback(responses_into_iter(res));
+                        Ok(())
+                    });
 
-            let _ = event_loop.run(stream);
-        });
+                let _ = event_loop.run(stream);
+            }).expect("spawn thread ok");
 
         Dns { tx: tx }
     }
