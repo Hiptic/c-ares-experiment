@@ -6,6 +6,7 @@ extern crate futures;
 use std::borrow::Cow;
 use std::net::IpAddr;
 use std::thread;
+use std::io::{self, ErrorKind};
 
 use c_ares::{AResults, AAAAResults};
 
@@ -16,16 +17,16 @@ pub struct Dns {
     tx: mpsc::UnboundedSender<Cow<'static, str>>,
 }
 
-type ResolveResult = (c_ares::Result<AResults>, c_ares::Result<AAAAResults>);
+type ResolveResult = (c_ares::Result<AResults>, c_ares::Result<AAAAResults>, Cow<'static, str>);
 
 /// Converts the ResolveResult into a vector of IpAddr
 ///
 /// the ENODATA error is essentially ignored. If both queries returned ENODATA,
 /// the result of this function will be Ok with an empty Vec.
-fn responses_into_iter(responses: ResolveResult) -> c_ares::Result<Vec<IpAddr>> {
+fn responses_into_iter(responses: ResolveResult) -> (Cow<'static, str>, io::Result<Vec<IpAddr>>) {
     let mut addrs = Vec::new();
 
-    let (a_result, aaaa_result) = responses;
+    let (a_result, aaaa_result, host) = responses;
 
     match aaaa_result {
         Ok(aaaa) => {
@@ -34,7 +35,7 @@ fn responses_into_iter(responses: ResolveResult) -> c_ares::Result<Vec<IpAddr>> 
             }
         },
         Err(c_ares::Error::ENODATA) => (),
-        Err(err) => return Err(err),
+        Err(err) => return (host, Err(io::Error::new(ErrorKind::Other, err))),
     }
 
     match a_result {
@@ -44,10 +45,10 @@ fn responses_into_iter(responses: ResolveResult) -> c_ares::Result<Vec<IpAddr>> 
             }
         },
         Err(c_ares::Error::ENODATA) => (),
-        Err(err) => return Err(err),
+        Err(err) => return (host, Err(io::Error::new(ErrorKind::Other, err))),
     }
 
-    Ok(addrs)
+    (host, Ok(addrs))
 }
 
 impl Dns {
@@ -58,7 +59,7 @@ impl Dns {
     }
 
     pub fn new<F>(callback: F) -> Dns
-        where F: Fn(c_ares::Result<Vec<IpAddr>>) + Send + 'static
+        where F: Fn((Cow<'static, str>, io::Result<Vec<IpAddr>>)) + Send + 'static
     {
         // Create the request channel. Lookup requests are sent on `tx`, and `rx`
         // provides a stream of those requests.
@@ -89,7 +90,7 @@ impl Dns {
                             // Result<c_ares::AAAAResults, c_ares::Error>
                             .then(|res| Ok(res));
 
-                        a_query.join(aaaa_query)
+                        a_query.join3(aaaa_query, Ok(req))
                     })
                     // Limit how many futures execute in parallel
                     .buffer_unordered(1000)

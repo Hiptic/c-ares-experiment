@@ -20,8 +20,8 @@ fn main() {
     // Wait for QUERIES responses
     for _ in 0..QUERIES {
         match rx.recv() {
-            Ok(Ok(addrs)) => println!("OK: {:?}", addrs),
-            Ok(Err(err)) => println!("DNS ERR: {}", err),
+            Ok((host, Ok(addrs))) => println!("OK [{}]: {:?}", host, addrs),
+            Ok((host, Err(err))) => println!("DNS ERR [{}]: {}", host, err),
             Err(err) => println!("CHANNEL ERR: {}", err)
         };
     }
