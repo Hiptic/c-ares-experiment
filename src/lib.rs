@@ -4,7 +4,6 @@ extern crate tokio_core;
 extern crate futures;
 
 use std::borrow::Cow;
-use std::sync::mpsc as std_mpsc;
 use std::net::IpAddr;
 use std::thread;
 
@@ -31,7 +30,7 @@ fn responses_into_iter(responses: ResolveResult) -> c_ares::Result<Vec<IpAddr>> 
     match aaaa_result {
         Ok(aaaa) => {
             for entry in aaaa.iter() {
-                addrs.push(entry.ipv6().into());
+                addrs.push(IpAddr::V6(entry.ipv6()));
             }
         },
         Err(c_ares::Error::ENODATA) => (),
@@ -41,7 +40,7 @@ fn responses_into_iter(responses: ResolveResult) -> c_ares::Result<Vec<IpAddr>> 
     match a_result {
         Ok(a) => {
             for entry in a.iter() {
-                addrs.push(entry.ipv4().into());
+                addrs.push(IpAddr::V4(entry.ipv4()));
             }
         },
         Err(c_ares::Error::ENODATA) => (),
