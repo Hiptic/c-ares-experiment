@@ -24,21 +24,12 @@ type ResolveResult = (c_ares::Result<AResults>, Cow<'static, str>);
 /// the ENODATA error is essentially ignored. If both queries returned ENODATA,
 /// the result of this function will be Ok with an empty Vec.
 fn responses_into_iter(responses: ResolveResult) -> (Cow<'static, str>, io::Result<Vec<IpAddr>>) {
-    let mut addrs = Vec::new();
-
     let (a_result, host) = responses;
 
-    match a_result {
-        Ok(a) => {
-            for entry in a.iter() {
-                addrs.push(IpAddr::V4(entry.ipv4()));
-            }
-        },
-        Err(c_ares::Error::ENODATA) => (),
-        Err(err) => return (host, Err(io::Error::new(ErrorKind::Other, err))),
-    }
+    let addrs = a_result.map(|a| a.iter().map(|entry| IpAddr::V4(entry.ipv4())).collect())
+        .map_err(|err| io::Error::new(ErrorKind::Other, err));
 
-    (host, Ok(addrs))
+    (host, addrs)
 }
 
 impl Dns {
