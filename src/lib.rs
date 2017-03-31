@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::thread;
 use std::io::{self, ErrorKind};
 
-use c_ares::{AResults, AAAAResults};
+use c_ares::{AResults};
 
 use futures::sync::mpsc;
 use futures::{Stream, Future};
@@ -17,7 +17,7 @@ pub struct Dns {
     tx: mpsc::UnboundedSender<Cow<'static, str>>,
 }
 
-type ResolveResult = (c_ares::Result<AResults>, c_ares::Result<AAAAResults>, Cow<'static, str>);
+type ResolveResult = (c_ares::Result<AResults>, Cow<'static, str>);
 
 /// Converts the ResolveResult into a vector of IpAddr
 ///
@@ -26,17 +26,7 @@ type ResolveResult = (c_ares::Result<AResults>, c_ares::Result<AAAAResults>, Cow
 fn responses_into_iter(responses: ResolveResult) -> (Cow<'static, str>, io::Result<Vec<IpAddr>>) {
     let mut addrs = Vec::new();
 
-    let (a_result, aaaa_result, host) = responses;
-
-    match aaaa_result {
-        Ok(aaaa) => {
-            for entry in aaaa.iter() {
-                addrs.push(IpAddr::V6(entry.ipv6()));
-            }
-        },
-        Err(c_ares::Error::ENODATA) => (),
-        Err(err) => return (host, Err(io::Error::new(ErrorKind::Other, err))),
-    }
+    let (a_result, host) = responses;
 
     match a_result {
         Ok(a) => {
@@ -83,14 +73,7 @@ impl Dns {
                             // Result<c_ares::AResults, c_ares::Error>
                             .then(|res| Ok(res));
 
-                        let aaaa_query = resolver
-                            // Create the AAAA request
-                            .query_aaaa(&req[..])
-                            // Transform into a future that is always successful with Item type of
-                            // Result<c_ares::AAAAResults, c_ares::Error>
-                            .then(|res| Ok(res));
-
-                        a_query.join3(aaaa_query, Ok(req))
+                        a_query.join(Ok(req))
                     })
                     // Limit how many futures execute in parallel
                     .buffer_unordered(1000)
