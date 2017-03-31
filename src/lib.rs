@@ -90,7 +90,7 @@ impl Dns {
                     a_query.join(aaaa_query)
                 })
                 // Limit how many futures execute in parallel
-                .buffer_unordered(25)
+                .buffer_unordered(1000)
                 // Send each response on the result channel
                 .for_each(|res| {
                     callback(responses_into_iter(res));
